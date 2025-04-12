@@ -25,7 +25,7 @@ class Lidar2DListener(Node):
 
         print("Lidar2DListener initialized and waiting for data...")
 
-    def listener_callback(self, msg):
+    def listener_callback(self, msg: LaserScan):
         self.lidar_data = msg.ranges
         self.RANGE_MIN = msg.range_min
         self.RANGE_MAX = msg.range_max

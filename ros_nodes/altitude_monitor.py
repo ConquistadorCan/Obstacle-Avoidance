@@ -22,7 +22,7 @@ class AltitudeMonitor(Node):
             qos_policy
         )
 
-    def altitude_callback(self, msg):
+    def altitude_callback(self, msg: PoseStamped):
         self.current_altitude = round(msg.pose.position.z, 2)
 
     def get_current_altitude(self):
