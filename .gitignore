@@ -5,3 +5,9 @@ __pycache__/
 
 # Scripts
 *.sh
+
+# Mission files
+*.txt
+
+# Simulation folder
+start_simulation/
