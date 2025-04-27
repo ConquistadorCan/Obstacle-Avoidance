@@ -1,3 +1,5 @@
+import math
+
 import pyproj
 from pymavlink import mavutil
 
@@ -5,6 +7,7 @@ from config.path_utils import MISSIONS_DIR
 from core.log_status_enum import LogStatusEnum
 from core.flight_mode_enum import FlightModeEnum
 from core.type_mask_helper import build_type_mask
+from core.message_type_enum import MessageTypeEnum
 from config.home_location import HOME_LAT, HOME_LON
 from ros_nodes.altitude_monitor import AltitudeMonitor
 from missions.missions_util import convert_mission_file_local_to_wgs
@@ -127,10 +130,17 @@ class DroneController:
             return True
 
         else:
+            print(f"{LogStatusEnum.WARNING.value} Drone failed to take off, trying again")
+
             self.send_velocity_command(vz = -0.1)
+
             while not _wait_for_takeoff():
+                print(f"{LogStatusEnum.WARNING.value} Drone failed to take off, trying again")
+
                 self.send_velocity_command(vz = -0.1)
+
             print(f"{LogStatusEnum.SUCCESS.value} Drone successfully took off to {altitude} meters")
+            
             self.stop_immediate()
 
     def send_velocity_command(
@@ -281,3 +291,54 @@ class DroneController:
         self.set_mode(FlightModeEnum.GUIDED)
         for _ in range(attempt_limit):
             self.send_velocity_command(0, 0, 0)
+
+    def get_next_waypoint_yaw(self) -> float:
+        current_msg = self._request_single_message(MessageTypeEnum.GLOBAL_POSITION)
+        current_lon, current_lat = current_msg.lon / 1e7, current_msg.lat / 1e7
+        heading = current_msg.hdg / 1e2
+
+        mission_msg = self._request_single_message(MessageTypeEnum.MISSION_CURRENT)
+        seq = mission_msg.seq
+
+        self.connection.mav.mission_request_int_send(
+            self.connection.target_system,
+            self.connection.target_component,
+            seq
+        )
+
+        waypoint_msg = self.connection.recv_match(type="MISSION_ITEM_INT", blocking=True)
+        target_lon, target_lat = waypoint_msg.y / 1e7, waypoint_msg.x / 1e7
+
+        geod = pyproj.Geod(ellps="WGS84")
+        yaw, _, _ = geod.inv(current_lon, current_lat, target_lon, target_lat)
+        yaw = round(yaw % 360, 2)
+
+        relative_yaw = (yaw - heading + 360) % 360
+        if relative_yaw > 180:
+            relative_yaw -= 360
+        relative_yaw_rad = math.radians(relative_yaw)
+
+        return round(relative_yaw_rad, 2)
+
+    def _request_single_message(self, message_type: MessageTypeEnum, interval_us: int = 1_000_000):
+        self._set_message_interval(message_type, interval_us)
+
+        msg = self.connection.recv_match(
+            type=message_type.value.get("str_value"),
+            blocking=True
+        )
+
+        self._set_message_interval(message_type, -1)
+
+        return msg
+
+    def _set_message_interval(self, message_type: MessageTypeEnum, interval: int):
+        self.connection.mav.command_long_send(
+            self.connection.target_system,
+            self.connection.target_component,
+            mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
+            0,
+            message_type.value.get("int_value"),
+            interval,
+            0, 0, 0, 0, 0,
+        )

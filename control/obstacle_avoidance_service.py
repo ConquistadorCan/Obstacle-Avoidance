@@ -1,12 +1,13 @@
 import math
 
 from core.log_status_enum import LogStatusEnum
+from core.flight_mode_enum import FlightModeEnum
 from algorithms.base import BaseAvoidanceAlgorithm
 from control.drone_controller import DroneController
 from ros_nodes.lidar_2d_listener import Lidar2DListener
 
 class ObstacleAvoidanceService:
-    def __init__(self, detection_algorithm: BaseAvoidanceAlgorithm, drone_controller: DroneController, danger_threshold: int = 2):
+    def __init__(self, detection_algorithm: BaseAvoidanceAlgorithm, drone_controller: DroneController, danger_threshold: int = 3):
         self.detection_algorithm = detection_algorithm
         self.drone_controller = drone_controller
         self.active = False
@@ -35,10 +36,26 @@ class ObstacleAvoidanceService:
                 self._avoid_obstacle(lidar_data)
                 lidar_data = self.lidar_listener.get_lidar_data()
 
-    def _avoid_obstacle(self, lidar_data):
-        decision = self.detection_algorithm.make_decision(lidar_data)
+            self.drone_controller.stop_immediate()
 
-        self.drone_controller.send_velocity_command(decision.vx, decision.vy, decision.vz)     
+            print(f"{LogStatusEnum.INFO.value} Path is clear, resuming mission.")
+            
+            self.drone_controller.set_mode(FlightModeEnum.AUTO)
+
+    def _avoid_obstacle(self, lidar_data, use_default_heading: bool = False):
+        decision = self.detection_algorithm.make_decision(lidar_data, 0.5, self.danger_threshold)
+
+        if not decision.valid:
+            print(f"{LogStatusEnum.ERROR.value} Could not find valid path.")
+            self.drone_controller.set_mode(FlightModeEnum.RTL)
+
+        yaw = (
+            self.drone_controller.get_next_waypoint_yaw()
+            if decision.yaw != 0 and use_default_heading
+            else decision.yaw
+        )
+
+        self.drone_controller.send_velocity_command(vx=decision.vx, vy=decision.vy, vz=decision.vz, yaw=yaw)
 
     def _is_path_clear(self, lidar_data):
         forward_distances = [
@@ -47,7 +64,6 @@ class ObstacleAvoidanceService:
         ]
 
         if not forward_distances:
-            print(f"{LogStatusEnum.WARNING.value} No valid Lidar data in forward sector!")
             return True
 
         if min(forward_distances) < self.danger_threshold:

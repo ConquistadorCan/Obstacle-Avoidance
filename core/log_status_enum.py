@@ -5,3 +5,4 @@ class LogStatusEnum(Enum):
     SUCCESS = "🟢 [SUCCESS]"
     ERROR = "🔴 [ERROR]"
     WARNING = "🟠 [WARNING]"
+    INFO = "ℹ️ [INFO]"

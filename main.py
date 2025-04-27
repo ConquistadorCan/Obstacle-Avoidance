@@ -10,10 +10,12 @@ rclpy.init()
 
 drone_controller = DroneController()
 rule_based_avoidance_algorithm = RuleBasedAvoidanceAlgorithm()
-obstacle_avoidance_service = ObstacleAvoidanceService(rule_based_avoidance_algorithm, drone_controller)
+obstacle_avoidance_service = ObstacleAvoidanceService(rule_based_avoidance_algorithm, drone_controller, 3)
 
 try:
     drone_controller.start_auto_mission("mission", 3)
     obstacle_avoidance_service.start_detection_and_avoidance()
 except KeyboardInterrupt:
+    drone_controller.set_mode(FlightModeEnum.RTL)
+except Exception:
     drone_controller.set_mode(FlightModeEnum.RTL)
