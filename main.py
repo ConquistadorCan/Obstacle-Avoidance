@@ -1,0 +1,19 @@
+import rclpy # type: ignore
+
+from core.flight_mode_enum import FlightModeEnum
+from control.drone_controller import DroneController
+from algorithms.rule_base import RuleBasedAvoidanceAlgorithm
+from control.obstacle_avoidance_service import ObstacleAvoidanceService
+
+
+rclpy.init()
+
+drone_controller = DroneController()
+rule_based_avoidance_algorithm = RuleBasedAvoidanceAlgorithm()
+obstacle_avoidance_service = ObstacleAvoidanceService(rule_based_avoidance_algorithm, drone_controller)
+
+try:
+    drone_controller.start_auto_mission("mission", 3)
+    obstacle_avoidance_service.start_detection_and_avoidance()
+except KeyboardInterrupt:
+    drone_controller.set_mode(FlightModeEnum.RTL)

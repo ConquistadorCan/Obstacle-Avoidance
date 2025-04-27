@@ -18,3 +18,6 @@ def convert_mission_file_local_to_wgs(mission_file_name: str, output_mission_fil
             x_str, y_str, z_str = line.strip().split(",")
             lat, lon = _local_to_gps(float(x_str), float(y_str), home_lat, home_lon)
             outfile.write(f"{lat:.7f},{lon:.7f},{float(z_str):.2f}\n")
+        
+        lat, lon, z_str = 0, 0, 0
+        outfile.write(f"{lat:.7f},{lon:.7f},{float(z_str):.2f}\n")

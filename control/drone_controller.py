@@ -1,4 +1,4 @@
-import rclpy # type: ignore
+import pyproj
 from pymavlink import mavutil
 
 from config.path_utils import MISSIONS_DIR
@@ -86,17 +86,21 @@ class DroneController:
 
         print(f"{LogStatusEnum.SUCCESS.value} Drone successfully armed")
 
-    def takeoff(self, altitude: float, altitude_threshold: float = 0.95, attempt_limit: int = 1000, altitude_monitor: AltitudeMonitor = None):
+    def takeoff(self, altitude: float, altitude_threshold: float = 0.95, attempt_limit: int = 50, altitude_monitor: AltitudeMonitor = None):
         altitude_monitor = altitude_monitor or AltitudeMonitor()
 
-        def _wait_for_takeoff() -> bool:
+        def _wait_for_takeoff(tolerance: float = 0.05) -> bool:
             attempt = 0
             prev_alt = altitude_monitor.get_current_altitude()
 
             while prev_alt < altitude * altitude_threshold:
                 curr_alt = altitude_monitor.get_current_altitude()
 
-                if curr_alt == prev_alt:
+                if prev_alt < 0.2:
+                    prev_alt = curr_alt
+                    continue
+
+                if abs(curr_alt - prev_alt) < tolerance:
                     attempt += 1
                     if attempt > attempt_limit:
                         return False
@@ -122,16 +126,12 @@ class DroneController:
             print(f"{LogStatusEnum.SUCCESS.value} Drone successfully took off to {altitude} meters")
             return True
 
-        print(f"{LogStatusEnum.WARNING.value} First takeoff attempt failed. Retrying...")
-        if _try_takeoff():
+        else:
+            self.send_velocity_command(vz = -0.1)
+            while not _wait_for_takeoff():
+                self.send_velocity_command(vz = -0.1)
             print(f"{LogStatusEnum.SUCCESS.value} Drone successfully took off to {altitude} meters")
-            return True
-
-        self.set_mode(FlightModeEnum.RTL)
-        raise Exception(
-            f"{LogStatusEnum.ERROR.value} Takeoff failed after two attempts. Desired: {altitude}m, "
-            f"Current: {altitude_monitor.get_current_altitude()}m"
-        )
+            self.stop_immediate()
 
     def send_velocity_command(
         self,
@@ -163,7 +163,7 @@ class DroneController:
             yaw_rate,
         )
 
-    def start_auto_mission(self, mission_file_name: str, altitude: float = 10, wait_time: int =3):
+    def start_auto_mission(self, mission_file_name: str, altitude: float = 10):
         print(f"{LogStatusEnum.WAITING.value} Starting auto mission from {mission_file_name}")
 
         def _get_waypoints_from_file(file_name: str):
@@ -182,46 +182,90 @@ class DroneController:
             self.connection.mav.mission_clear_all_send(
                 self.connection.target_system, self.connection.target_component
             )
-            ack = self.connection.recv_match(type='MISSION_ACK', blocking=True)
-            #print(f"Mission clear all ack: {ack.type}")
+            self.connection.recv_match(type='MISSION_ACK', blocking=True)
             
             count = len(waypoints)
             self.connection.mav.mission_count_send(
                 self.connection.target_system,
                 self.connection.target_component,
-                count
+                count * 3
             )
             req = self.connection.recv_match(type='MISSION_REQUEST', blocking=True)
-            #print(f"Mission count ack: {req.seq}")
 
             for i, (lat, lon, alt) in enumerate(waypoints):
-                while req.seq != i:
+                while req.seq != i * 3:
                     req = self.connection.recv_match(type='MISSION_REQUEST', blocking=True)
-                    #print(f"Waiting for MISSION_REQUEST for waypoint {i}, got {req.seq}")
+                
+                previous_lat, previous_lon = (waypoints[i - 1][:2] if i > 0 else (HOME_LAT, HOME_LON))
+                target_lat, target_lon = (HOME_LAT, HOME_LON) if i == len(waypoints) - 1 else (lat, lon)
 
-                command = mavutil.mavlink.MAV_CMD_NAV_WAYPOINT if i < count - 1 else mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH
+                geosedic = pyproj.Geod(ellps='WGS84')
+                yaw_angle, _, _ = geosedic.inv(
+                    previous_lon, previous_lat,
+                    target_lon, target_lat
+                )
+                yaw_angle = round(yaw_angle % 360, 2)
 
                 self.connection.mav.mission_item_int_send(
                     self.connection.target_system,
                     self.connection.target_component,
-                    i,
+                    i * 3,
+                    mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+                    mavutil.mavlink.MAV_CMD_CONDITION_YAW,
+                    0,
+                    1,
+                    yaw_angle,
+                    40,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                )
+                req = self.connection.recv_match(type='MISSION_REQUEST', blocking=True)
+                while req.seq != i * 3 + 1:
+                    req = self.connection.recv_match(type='MISSION_REQUEST', blocking=True)
+
+                self.connection.mav.mission_item_int_send(
+                    self.connection.target_system,
+                    self.connection.target_component,
+                    i * 3 + 1,
+                    mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+                    mavutil.mavlink.MAV_CMD_NAV_DELAY,
+                    0,
+                    1,
+                    5,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                )
+
+                req = self.connection.recv_match(type='MISSION_REQUEST', blocking=True)
+                while req.seq != i * 3 + 2:
+                    req = self.connection.recv_match(type='MISSION_REQUEST', blocking=True)
+                
+                command = mavutil.mavlink.MAV_CMD_NAV_WAYPOINT if i < count - 1 else mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH
+                self.connection.mav.mission_item_int_send(
+                    self.connection.target_system,
+                    self.connection.target_component,
+                    i*3 + 2,
                     mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
                     command,
                     1 if i == 0 else 0,
                     1, 
-                    wait_time, 
+                    0, 
                     0, 0, 0,
                     int(lat * 1e7),
                     int(lon * 1e7),
                     alt
                 )
-
                 if i < count - 1:
                     req = self.connection.recv_match(type='MISSION_REQUEST', blocking=True)
-                    #print(f"Waypoint {i+1} sent, waiting for MISSION_REQUEST for waypoint {i + 1}, got {req.seq}")
                 else:
-                    ack = self.connection.recv_match(type='MISSION_ACK', blocking=True)
-                    #print(f"Waypoint {i+1} sent, waiting for MISSION_ACK, got {ack.type}")
+                    self.connection.recv_match(type='MISSION_ACK', blocking=True)
 
         convert_mission_file_local_to_wgs(mission_file_name, "mission_converted", HOME_LAT, HOME_LON)
         waypoints = _get_waypoints_from_file("mission_converted")
@@ -233,11 +277,7 @@ class DroneController:
         self.set_mode(FlightModeEnum.AUTO)
         print(f"{LogStatusEnum.SUCCESS.value} Auto mission started")
 
-if __name__ == "__main__":
-    try:
-        rclpy.init()
-
-        drone_controller = DroneController()
-        drone_controller.start_auto_mission("mission")
-    except Exception as e:
-        print(e)
+    def stop_immediate(self, attempt_limit: int = 100):
+        self.set_mode(FlightModeEnum.GUIDED)
+        for _ in range(attempt_limit):
+            self.send_velocity_command(0, 0, 0)

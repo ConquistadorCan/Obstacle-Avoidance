@@ -3,6 +3,8 @@ from rclpy.node import Node # type: ignore
 from geometry_msgs.msg import PoseStamped # type: ignore
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy # type: ignore
 
+from core.log_status_enum import LogStatusEnum
+
 class AltitudeMonitor(Node):
     def __init__(self):
         super().__init__("altitude_monitor")
@@ -18,11 +20,13 @@ class AltitudeMonitor(Node):
         self.subscription = self.create_subscription(
             PoseStamped,
             "/ap/pose/filtered",
-            self.altitude_callback,
+            self._altitude_callback,
             qos_policy
         )
 
-    def altitude_callback(self, msg: PoseStamped):
+        print(f"{LogStatusEnum.SUCCESS.value} Altitude Monitor initialized and waiting for data...")
+
+    def _altitude_callback(self, msg: PoseStamped):
         self.current_altitude = round(msg.pose.position.z, 2)
 
     def get_current_altitude(self):

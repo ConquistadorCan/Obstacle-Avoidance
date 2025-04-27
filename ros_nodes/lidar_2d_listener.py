@@ -2,9 +2,13 @@ import rclpy # type: ignore
 from rclpy.node import Node # type: ignore
 from sensor_msgs.msg import LaserScan # type: ignore
 
+from core.log_status_enum import LogStatusEnum
+
 class Lidar2DListener(Node):
     def __init__(self):
         super().__init__("lidar_2d_listener")
+
+        self.forward_angle = 180
 
         self.lidar_data = None
         self.RANGE_MIN = None
@@ -19,13 +23,13 @@ class Lidar2DListener(Node):
         self.subscription = self.create_subscription(
             LaserScan, # type: ignore
             "/scan",
-            self.listener_callback,
+            self._listener_callback,
             qos_profile,
         )
 
-        print("Lidar2DListener initialized and waiting for data...")
+        print(f"{LogStatusEnum.SUCCESS.value} Lidar 2D Listener initialized and waiting for data...")
 
-    def listener_callback(self, msg: LaserScan):
+    def _listener_callback(self, msg: LaserScan):
         self.lidar_data = msg.ranges
         self.RANGE_MIN = msg.range_min
         self.RANGE_MAX = msg.range_max
@@ -41,5 +45,5 @@ class Lidar2DListener(Node):
 if __name__ == "__main__":
     rclpy.init()
     lidar_2d_listener = Lidar2DListener()
-    print(f"Lidar Data: {lidar_2d_listener.get_lidar_data()}")
+    lidar_data = lidar_2d_listener.get_lidar_data()
     rclpy.shutdown()

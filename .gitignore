@@ -11,3 +11,6 @@ __pycache__/
 
 # Simulation folder
 start_simulation/
+
+# Test file
+test.py
