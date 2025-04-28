@@ -10,7 +10,7 @@ class ObstacleAvoidanceService:
     def __init__(self, detection_algorithm: BaseAvoidanceAlgorithm, drone_controller: DroneController, danger_threshold: int = 3):
         self.detection_algorithm = detection_algorithm
         self.drone_controller = drone_controller
-        self.active = False
+        self.active = True
 
         self.lidar_listener = Lidar2DListener()
 
@@ -21,7 +21,11 @@ class ObstacleAvoidanceService:
 
     def start_detection_and_avoidance(self):
         self.active = True
-        self._run()
+        try:
+            self._run()
+        except KeyboardInterrupt as e:
+            self.detection_algorithm.generate_report()
+            raise e
 
     def _run(self):
         while self.active:
@@ -32,9 +36,14 @@ class ObstacleAvoidanceService:
 
             self.drone_controller.stop_immediate()
 
-            while not self._is_path_clear(lidar_data):
+            while self.active and not self._is_path_clear(lidar_data):
                 self._avoid_obstacle(lidar_data, True)
                 lidar_data = self.lidar_listener.get_lidar_data()
+
+            if not self.active:
+                self.drone_controller.set_mode(FlightModeEnum.RTL)
+                self.detection_algorithm.generate_report()
+                return
 
             self.drone_controller.stop_immediate()
 
@@ -47,7 +56,8 @@ class ObstacleAvoidanceService:
 
         if not decision.valid:
             print(f"{LogStatusEnum.ERROR.value} Could not find valid path.")
-            self.drone_controller.set_mode(FlightModeEnum.RTL)
+            self.active = False
+            return
 
         yaw = (
             self.drone_controller.get_next_waypoint_yaw()

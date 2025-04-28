@@ -17,5 +17,6 @@ try:
     obstacle_avoidance_service.start_detection_and_avoidance()
 except KeyboardInterrupt:
     drone_controller.set_mode(FlightModeEnum.RTL)
-except Exception:
+except Exception as e:
+    print(f"An error occurred: {e}")
     drone_controller.set_mode(FlightModeEnum.RTL)

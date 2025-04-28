@@ -12,11 +12,23 @@ from config.home_location import HOME_LAT, HOME_LON
 from ros_nodes.altitude_monitor import AltitudeMonitor
 from missions.missions_util import convert_mission_file_local_to_wgs
 
+class Waypoint:
+    def __init__(self, lat: float, lon: float, alt: float):
+        self.lat = lat
+        self.lon = lon
+        self.alt = alt
+
 class DroneController:
     def __init__(self, connection_string: str = "tcp:127.0.0.1:5763"):
         self.connection = mavutil.mavlink_connection(connection_string)
         self.connection.wait_heartbeat()
         print(f"{LogStatusEnum.SUCCESS.value} Connected to drone on {connection_string}")
+
+        self.geod = pyproj.Geod(ellps='WGS84')
+        self._set_message_interval(MessageTypeEnum.GLOBAL_POSITION, 200_000)
+        self._set_message_interval(MessageTypeEnum.MISSION_CURRENT, 200_000)
+
+        self.mission_waypoints = {}
 
     def set_mode(self, mode: FlightModeEnum, timeout_per_attempt: int = 0.05, attempt_limit: int = 1000):
         def _wait_for_mode():
@@ -53,7 +65,7 @@ class DroneController:
 
         print(f"{LogStatusEnum.SUCCESS.value} Mode successfully set to {mode.name}")
 
-    def arm_drone(self, timeout_per_attempt: int = 0.1, attempt_limit: int = 20):
+    def arm_drone(self, timeout_per_attempt: int = 0.1, attempt_limit: int = 30):
         def _wait_for_arm():
             attempt = 0
 
@@ -203,14 +215,15 @@ class DroneController:
             req = self.connection.recv_match(type='MISSION_REQUEST', blocking=True)
 
             for i, (lat, lon, alt) in enumerate(waypoints):
+                self.mission_waypoints[i*3+2] = Waypoint(lat, lon, alt)
+
                 while req.seq != i * 3:
                     req = self.connection.recv_match(type='MISSION_REQUEST', blocking=True)
                 
                 previous_lat, previous_lon = (waypoints[i - 1][:2] if i > 0 else (HOME_LAT, HOME_LON))
                 target_lat, target_lon = (HOME_LAT, HOME_LON) if i == len(waypoints) - 1 else (lat, lon)
 
-                geosedic = pyproj.Geod(ellps='WGS84')
-                yaw_angle, _, _ = geosedic.inv(
+                yaw_angle, _, _ = self.geod.inv(
                     previous_lon, previous_lat,
                     target_lon, target_lat
                 )
@@ -293,24 +306,18 @@ class DroneController:
             self.send_velocity_command(0, 0, 0)
 
     def get_next_waypoint_yaw(self) -> float:
-        current_msg = self._request_single_message(MessageTypeEnum.GLOBAL_POSITION)
+        current_msg = self.connection.recv_match(type=MessageTypeEnum.GLOBAL_POSITION.value.get("str_value"),blocking=True)
         current_lon, current_lat = current_msg.lon / 1e7, current_msg.lat / 1e7
         heading = current_msg.hdg / 1e2
 
-        mission_msg = self._request_single_message(MessageTypeEnum.MISSION_CURRENT)
+        mission_msg = self.connection.recv_match(type=MessageTypeEnum.MISSION_CURRENT.value.get("str_value"),blocking=True)
         seq = mission_msg.seq
 
-        self.connection.mav.mission_request_int_send(
-            self.connection.target_system,
-            self.connection.target_component,
-            seq
-        )
+        waypoint: Waypoint = self.mission_waypoints.get(seq)
 
-        waypoint_msg = self.connection.recv_match(type="MISSION_ITEM_INT", blocking=True)
-        target_lon, target_lat = waypoint_msg.y / 1e7, waypoint_msg.x / 1e7
+        target_lon, target_lat = waypoint.lon, waypoint.lat
 
-        geod = pyproj.Geod(ellps="WGS84")
-        yaw, _, _ = geod.inv(current_lon, current_lat, target_lon, target_lat)
+        yaw, _, _ = self.geod.inv(current_lon, current_lat, target_lon, target_lat)
         yaw = round(yaw % 360, 2)
 
         relative_yaw = (yaw - heading + 360) % 360
@@ -319,18 +326,6 @@ class DroneController:
         relative_yaw_rad = math.radians(relative_yaw)
 
         return round(relative_yaw_rad, 2)
-
-    def _request_single_message(self, message_type: MessageTypeEnum, interval_us: int = 1_000_000):
-        self._set_message_interval(message_type, interval_us)
-
-        msg = self.connection.recv_match(
-            type=message_type.value.get("str_value"),
-            blocking=True
-        )
-
-        self._set_message_interval(message_type, -1)
-
-        return msg
 
     def _set_message_interval(self, message_type: MessageTypeEnum, interval: int):
         self.connection.mav.command_long_send(
