@@ -33,7 +33,7 @@ class ObstacleAvoidanceService:
             self.drone_controller.stop_immediate()
 
             while not self._is_path_clear(lidar_data):
-                self._avoid_obstacle(lidar_data)
+                self._avoid_obstacle(lidar_data, True)
                 lidar_data = self.lidar_listener.get_lidar_data()
 
             self.drone_controller.stop_immediate()
@@ -51,7 +51,7 @@ class ObstacleAvoidanceService:
 
         yaw = (
             self.drone_controller.get_next_waypoint_yaw()
-            if decision.yaw != 0 and use_default_heading
+            if decision.yaw == 0 and use_default_heading
             else decision.yaw
         )
 
