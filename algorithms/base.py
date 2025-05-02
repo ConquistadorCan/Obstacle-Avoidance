@@ -10,6 +10,10 @@ class AvoidanceDecision:
 
 
 class BaseAvoidanceAlgorithm(ABC):
+    def __init__(self):
+        self.sector_width = None
+        self.forward_angle = None
+
     @abstractmethod
     def make_decision(self, lidar_data, speed: float, threshold: int) -> AvoidanceDecision:
         raise NotImplementedError("This method should be overridden in subclasses.")
@@ -21,3 +25,7 @@ class BaseAvoidanceAlgorithm(ABC):
     @abstractmethod
     def _record_decision(self, decision: AvoidanceDecision):
         raise NotImplementedError("This method should be overridden in subclasses.")
+    
+    def configure(self, sector_width: int, forward_angle: int):
+        self.sector_width = sector_width
+        self.forward_angle = forward_angle

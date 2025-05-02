@@ -19,6 +19,8 @@ class ObstacleAvoidanceService:
         self.start_idx = self.lidar_listener.forward_angle - self.sector_width
         self.end_idx = self.lidar_listener.forward_angle + self.sector_width
 
+        self.detection_algorithm.configure(sector_width=self.sector_width, forward_angle=self.lidar_listener.forward_angle)
+
     def start_detection_and_avoidance(self):
         self.active = True
         try:

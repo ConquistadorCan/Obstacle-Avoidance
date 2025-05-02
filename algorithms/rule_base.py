@@ -1,3 +1,4 @@
+import math
 from enum import Enum
 from datetime import datetime
 
@@ -21,16 +22,14 @@ class RuleBasedAvoidanceAlgorithm(BaseAvoidanceAlgorithm):
         self.escape_right_count = 0
 
     def make_decision(self, lidar_data, speed: float, threshold: int) -> AvoidanceDecision:
-        front_indices = list(range(170, 191))
-        right_indices = list(range(80, 101))
-        left_indices = list(range(260, 281))
+        front_indices, right_indices, left_indices = self.calculate_sector_indices()
 
         def _min_distance(indices):
             return min([lidar_data[i % 360] for i in indices])
 
         front_min = _min_distance(front_indices)
-        left_min = _min_distance(left_indices)
         right_min = _min_distance(right_indices)
+        left_min = _min_distance(left_indices)
 
         if front_min > threshold:
             self.escape_direction = EscapeDirectionEnum.RIGHT
@@ -46,7 +45,6 @@ class RuleBasedAvoidanceAlgorithm(BaseAvoidanceAlgorithm):
                 decision = AvoidanceDecision(valid=False)
         elif self.escape_direction == EscapeDirectionEnum.LEFT:
             if left_min > threshold:
-                print("Moving left")
                 decision = AvoidanceDecision(vy=-speed)
             else:
                 decision = AvoidanceDecision(valid=False)
@@ -83,3 +81,21 @@ class RuleBasedAvoidanceAlgorithm(BaseAvoidanceAlgorithm):
             f.write(report_content)
 
         print(f"{LogStatusEnum.INFO.value} Report generated: {filename}")
+
+    def calculate_sector_indices(self):
+        front_angle = math.ceil(2 * self.sector_width * 1.1)
+        half_angle = front_angle // 2
+
+        def get_indices(center):
+            start = (center - half_angle) % 360
+            end = (center + half_angle) % 360
+            if start < end:
+                return list(range(start, end + 1))
+            else:
+                return list(range(start, 360)) + list(range(0, end + 1))
+
+        front_indices = get_indices(self.forward_angle)
+        right_indices = get_indices((self.forward_angle - 90) % 360)
+        left_indices = get_indices((self.forward_angle + 90) % 360)
+
+        return front_indices, right_indices, left_indices
