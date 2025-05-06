@@ -1,6 +1,11 @@
 import math
+import numpy as np
 from enum import Enum
 from datetime import datetime
+import matplotlib.pyplot as plt
+
+import rclpy # type: ignore
+from ros_nodes.lidar_2d_listener import Lidar2DListener
 
 from config.path_utils import ROOT_DIR
 from algorithms.base import AvoidanceDecision
@@ -12,7 +17,7 @@ class EscapeDirectionEnum(Enum):
     RIGHT = "right"
 
 class RuleBasedAvoidanceAlgorithm(BaseAvoidanceAlgorithm):
-    def __init__(self):
+    def __init__(self, visualize_progress: bool = True):
         super().__init__()
         self.escape_direction = EscapeDirectionEnum.RIGHT
 
@@ -20,6 +25,11 @@ class RuleBasedAvoidanceAlgorithm(BaseAvoidanceAlgorithm):
         self.valid_decisions = 0
         self.escape_left_count = 0
         self.escape_right_count = 0
+
+        self.visualize_progress = visualize_progress
+        self.fig, self.ax = plt.subplots(subplot_kw={'projection': 'polar'})
+        plt.ion()
+        self.fig.show()
 
     def make_decision(self, lidar_data, speed: float, threshold: int) -> AvoidanceDecision:
         front_indices, right_indices, left_indices = self.calculate_sector_indices()
@@ -50,6 +60,41 @@ class RuleBasedAvoidanceAlgorithm(BaseAvoidanceAlgorithm):
                 decision = AvoidanceDecision(valid=False)
  
         self._record_decision(decision)
+
+        if self.visualize_progress:
+            def draw_sector(indices, color, label, radius=10):
+                angles_deg = np.array(indices) - 180
+                angles_rad = np.deg2rad(angles_deg)
+                
+                sector_angles = np.concatenate(([angles_rad[0]], angles_rad, [angles_rad[-1]]))
+                sector_radii = np.concatenate(([0], [radius]*len(angles_rad), [0]))
+
+                self.ax.fill(sector_angles, sector_radii, color=color, alpha=0.3, label=label)
+
+            self.ax.clear()
+            self.ax.set_theta_zero_location("N")
+            self.ax.set_theta_direction(-1)
+            self.ax.set_rlim(0, 10)
+
+            angles_rad = np.deg2rad(np.arange(-180, 180))
+
+            self.ax.plot(angles_rad, lidar_data[::-1], color='blue', label='Lidar Data')
+
+            draw_sector(front_indices, 'blue', 'Front Sector')
+            draw_sector(right_indices, 'green', 'Right Sector')
+            draw_sector(left_indices, 'red', 'Left Sector')
+
+            if decision.valid:
+                yaw_rad = math.atan2(decision.vy, decision.vx)
+
+                decision_radius = 10
+                self.ax.plot([yaw_rad, yaw_rad], [0, decision_radius], color='black', linewidth=2, label='Decision Direction')
+            else:
+                self.ax.set_title("❌ No valid direction", color='red')
+
+            self.ax.legend(loc='upper right')
+            self.fig.canvas.draw()
+            self.fig.canvas.flush_events()
 
         return decision
 
@@ -99,3 +144,22 @@ class RuleBasedAvoidanceAlgorithm(BaseAvoidanceAlgorithm):
         left_indices = get_indices((self.forward_angle + 90) % 360)
 
         return front_indices, right_indices, left_indices
+
+if __name__ == "__main__":
+    rclpy.init()
+
+    speed = 1.0
+    threshold = 3.0
+
+    lidar_listener = Lidar2DListener()
+    lidar_data = lidar_listener.get_lidar_data()
+    sector_width = math.ceil(math.sin(0.35 / threshold) * 180 / math.pi)
+
+    algorithm = RuleBasedAvoidanceAlgorithm()
+    algorithm.configure(sector_width, lidar_listener.forward_angle)
+
+    decision = algorithm.make_decision(lidar_data, speed, threshold)
+
+    plt.ioff()
+    plt.show()
+    
