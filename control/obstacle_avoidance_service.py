@@ -7,7 +7,7 @@ from control.drone_controller import DroneController
 from ros_nodes.lidar_2d_listener import Lidar2DListener
 
 class ObstacleAvoidanceService:
-    def __init__(self, detection_algorithm: BaseAvoidanceAlgorithm, drone_controller: DroneController, danger_threshold: int = 3):
+    def __init__(self, detection_algorithm: BaseAvoidanceAlgorithm, drone_controller: DroneController, danger_threshold: float = 3):
         self.detection_algorithm = detection_algorithm
         self.drone_controller = drone_controller
         self.active = True

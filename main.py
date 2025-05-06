@@ -3,13 +3,14 @@ import rclpy # type: ignore
 from core.flight_mode_enum import FlightModeEnum
 from control.drone_controller import DroneController
 from algorithms.rule_base import RuleBasedAvoidanceAlgorithm
+from algorithms.gap_following import GapFollowingAvoidanceAlgorithm
 from control.obstacle_avoidance_service import ObstacleAvoidanceService
-
 
 rclpy.init()
 
 drone_controller = DroneController()
 rule_based_avoidance_algorithm = RuleBasedAvoidanceAlgorithm()
+gap_following_avoidance_algorithm = GapFollowingAvoidanceAlgorithm()
 obstacle_avoidance_service = ObstacleAvoidanceService(rule_based_avoidance_algorithm, drone_controller, 3)
 
 try:
