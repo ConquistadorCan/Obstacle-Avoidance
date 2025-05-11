@@ -1,17 +1,30 @@
 import math
 import numpy as np
+from datetime import datetime
+import matplotlib.pyplot as plt
 
 import rclpy # type: ignore
 
+from config.path_utils import ROOT_DIR
 from ros_nodes.lidar_2d_listener import Lidar2DListener
 from algorithms.base import BaseAvoidanceAlgorithm, AvoidanceDecision
 
 class GapFollowingAvoidanceAlgorithm(BaseAvoidanceAlgorithm):
-    def __init__(self, drone_width_m: float = 0.7, max_allowed_angle_deg: int = 120):
+    def __init__(self, drone_width_m: float = 0.7, max_allowed_angle_deg: int = 120, visualize_progress: bool = True):
         super().__init__()
         self.drone_width_m = drone_width_m
         self.target_yaw = 0.0
         self.max_allowed_angle_deg = max_allowed_angle_deg
+
+        self.total_decisions = 0
+        self.angle_diffs = []
+        self.decisions = []
+
+        self.visualize_progress = visualize_progress
+        plt.ion()
+        self.fig, self.ax = plt.subplots(subplot_kw={'projection': 'polar'})
+        self.fig.canvas.set_window_title("Gap Following Avoidance Algorithm Visualization")
+        self.fig.show()
 
     def make_decision(self, lidar_data: list, speed: float, threshhold: float) -> AvoidanceDecision:
         angles_rad = np.deg2rad(np.arange(-180, 180))
@@ -78,12 +91,43 @@ class GapFollowingAvoidanceAlgorithm(BaseAvoidanceAlgorithm):
                     best_angle = center_angle
 
         if best_angle is None:
-            return AvoidanceDecision(valid=False)
+            decision = AvoidanceDecision(valid=False)
+            self._record_decision(decision)
+            return decision
 
         vx = speed * math.cos(best_angle)
         vy = speed * math.sin(best_angle)
 
-        return AvoidanceDecision(vx=vx, vy=vy, valid=True)
+        if self.visualize_progress:
+            cmap = plt.cm.get_cmap('tab20', len(inf_groups))
+            self.ax.clear()
+            self.ax.set_theta_zero_location("N")
+            self.ax.set_theta_direction(-1)
+            self.ax.set_rlim(0, 10)
+
+            angles_rad = np.deg2rad(np.arange(-180, 180))
+
+            for idx, group in enumerate(inf_groups):
+                color = cmap(idx)
+                for i in group:
+                    angle = angles_rad[i]
+                    self.ax.plot(angle, 10.0, 'o', color=color, markersize=5)
+
+            self.ax.plot([best_angle, best_angle], [0, 10.0], color='black', linewidth=2, label='Decision Direction')
+
+            self.ax.plot([self.target_yaw, self.target_yaw], [0, 10.0], color='red', linestyle='--', label='Target Yaw')
+
+            self.ax.set_title("Gap Following – Real-time", va='bottom')
+            self.ax.legend(loc='upper right')
+            self.fig.canvas.draw()
+            self.fig.canvas.flush_events()
+
+        angle_diff_deg = np.rad2deg(min_angle_diff)
+        self.angle_diffs.append(angle_diff_deg)
+
+        decision = AvoidanceDecision(vx=vx, vy=vy, valid=True)
+        self._record_decision(decision)
+        return decision
 
     def _compute_min_gap_width_indices(self, threshhold: float = 5):
         diagonal = self.drone_width_m * math.sqrt(2)
@@ -99,36 +143,29 @@ class GapFollowingAvoidanceAlgorithm(BaseAvoidanceAlgorithm):
         return True
 
     def _record_decision(self, decision):
-        print(f"Decision: {decision.valid}, vx: {decision.vx}, vy: {decision.vy}")
-
-    def _visualize_gap_selection(self, lidar_data, angles_rad, inf_groups, best_angle):
-        import matplotlib.cm as cm
-        import matplotlib.pyplot as plt
-
-        cmap = cm.get_cmap('tab20', len(inf_groups))
-        fig = plt.figure(figsize=(10, 10))
-        ax = fig.add_subplot(111, polar=True)
-
-        ax.plot(angles_rad, lidar_data, label='Lidar Data', color='blue')
-
-        for idx, group in enumerate(inf_groups):
-            color = cmap(idx)
-            for i in group:
-                ax.plot(angles_rad[i], 10.0, 'o', color=color, markersize=4)
-
-        if best_angle is not None:
-            ax.plot(best_angle, 10.0, 'o', color='green', markersize=10, label='Best Direction')
-
-        ax.plot([self.target_yaw, self.target_yaw], [0, 10.0], color='red', linewidth=2, label='Target Yaw')
-
-        ax.set_theta_zero_location("N")
-        ax.set_theta_direction(-1)
-        ax.set_title("Gap Following – Seçilen Yön", va='bottom')
-        ax.legend(loc='upper right')
-        plt.show()
+        self.total_decisions += 1
+        self.decisions.append(decision)
 
     def generate_report(self):
-        print("No report generation implemented for GapFollowingAvoidanceAlgorithm.")
+        report_content = (
+            f"--- GapFollowing Avoidance Algorithm Report ---\n"
+            f"Total Decisions: {self.total_decisions}\n"
+        )
+
+        if self.angle_diffs:
+            avg_diff = np.mean(self.angle_diffs)
+            max_diff = np.max(self.angle_diffs)
+            report_content += f"Average Yaw Deviation: {avg_diff:.2f} degrees\n"
+            report_content += f"Max Yaw Deviation: {max_diff:.2f} degrees\n"
+
+        reports_dir = ROOT_DIR / "reports"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = reports_dir / f"gap_following_report_{timestamp}.txt"
+
+        with open(filename, "w") as f:
+            f.write(report_content)
 
 if __name__ == "__main__":
     rclpy.init()
@@ -139,4 +176,6 @@ if __name__ == "__main__":
 
     lidar_data = lidar_listener.get_lidar_data()
     decision = gap_following_algorithm.make_decision(lidar_data, speed=1.0, threshhold=1)
-    print(f"Decision: {decision.valid}, vx: {decision.vx}, vy: {decision.vy}")
+
+    plt.ioff()
+    plt.show()

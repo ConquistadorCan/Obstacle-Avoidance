@@ -9,9 +9,9 @@ from control.obstacle_avoidance_service import ObstacleAvoidanceService
 rclpy.init()
 
 drone_controller = DroneController()
-rule_based_avoidance_algorithm = RuleBasedAvoidanceAlgorithm()
+#rule_based_avoidance_algorithm = RuleBasedAvoidanceAlgorithm()
 gap_following_avoidance_algorithm = GapFollowingAvoidanceAlgorithm()
-obstacle_avoidance_service = ObstacleAvoidanceService(rule_based_avoidance_algorithm, drone_controller, 3)
+obstacle_avoidance_service = ObstacleAvoidanceService(gap_following_avoidance_algorithm, drone_controller, 3)
 
 try:
     drone_controller.start_auto_mission("mission", 3)

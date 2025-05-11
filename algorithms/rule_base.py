@@ -27,9 +27,10 @@ class RuleBasedAvoidanceAlgorithm(BaseAvoidanceAlgorithm):
         self.escape_right_count = 0
 
         self.visualize_progress = visualize_progress
-        self.fig, self.ax = plt.subplots(subplot_kw={'projection': 'polar'})
         plt.ion()
-        self.fig.show()
+        self.fig, self.ax = plt.subplots(subplot_kw={'projection': 'polar'})
+        self.fig.canvas.set_window_title("Rule-Based Avoidance Algorithm Visualization")
+        plt.show(block=False)
 
     def make_decision(self, lidar_data, speed: float, threshold: int) -> AvoidanceDecision:
         front_indices, right_indices, left_indices = self.calculate_sector_indices()
